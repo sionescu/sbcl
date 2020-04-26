@@ -213,7 +213,8 @@ DEADLINEP.
 TO-SEC and TO-USEC indicate the relative timeout in seconds and microseconds.
 STOP-SEC and STOP-USEC indicate the absolute timeout in seconds and
 microseconds. DEADLINEP is true if the returned values reflect a global
-deadline instead of the local timeout indicated by SECONDS.
+deadline instead of the local timeout indicated by SECONDS. It means the caller
+should signal a DEADLINE-TIMEOUT condition if this timeout expires.
 
 If SECONDS is null and there is no global timeout all returned values will be
 null. If a global deadline has already passed when DECODE-TIMEOUT is called,

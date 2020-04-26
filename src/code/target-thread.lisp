@@ -908,11 +908,11 @@ IF-NOT-OWNER is :FORCE)."
       :structure waitqueue
       :slot token))
 
-(declaim (inline %condition-wait))
-(defun %condition-wait (queue mutex
-                        timeout to-sec to-usec stop-sec stop-usec deadlinep)
+(declaim (inline %%condition-wait))
+(defun %%condition-wait (queue mutex
+                         timeout to-sec to-usec stop-sec stop-usec)
   #-sb-thread
-  (declare (ignore queue mutex to-sec to-usec stop-sec stop-usec deadlinep))
+  (declare (ignore queue mutex to-sec to-usec stop-sec stop-usec))
   #-sb-thread
   (sb-ext:wait-for nil :timeout timeout) ; Yeah...
   #+sb-thread
@@ -973,35 +973,8 @@ IF-NOT-OWNER is :FORCE)."
                   ;; CONDITION-NOTIFY thinks we've been woken up, but really
                   ;; we're unwinding. Wake someone else up.
                   (%waitqueue-wakeup queue 1))))
-          ;; Update timeout for mutex re-aquisition unless we are
-          ;; already past the requested timeout.
-          (when (and (eq :ok status) to-sec)
-            (setf (values to-sec to-usec)
-                  (sb-impl::relative-decoded-times stop-sec stop-usec))
-            (when (and (zerop to-sec) (not (plusp to-usec)))
-              (setf status :timeout)))
-          ;; If we ran into deadline, try to get the mutex before
-          ;; signaling. If we don't unwind it will look like a normal
-          ;; return from user perspective.
-          (when (and (eq :timeout status) deadlinep)
-            (let ((got-it (%try-mutex mutex me)))
-              (allow-with-interrupts
-                (signal-deadline)
-                (cond (got-it
-                       (return-from %condition-wait t))
-                      (t
-                       ;; The deadline may have changed.
-                       (setf (values to-sec to-usec stop-sec stop-usec deadlinep)
-                             (decode-timeout timeout))
-                       (setf status :ok))))))
-          ;; Re-acquire the mutex for normal return.
-          (when (eq :ok status)
-            (unless (or (%try-mutex mutex me)
-                        (allow-with-interrupts
-                          (%wait-for-mutex mutex me timeout
-                                           to-sec to-usec
-                                           stop-sec stop-usec deadlinep)))
-              (setf status :timeout)))))
+          ;; Re-acquire mutex.
+          (grab-mutex mutex)))
       ;; Determine actual return value. :ok means (potentially
       ;; spurious) wakeup => T. :timeout => NIL.
       (case status
@@ -1017,7 +990,22 @@ IF-NOT-OWNER is :FORCE)."
          ;; The only case we return normally without re-acquiring
          ;; the mutex is when there is a :TIMEOUT that runs out.
          (bug "%CONDITION-WAIT: invalid status on normal return: ~S" status))))))
-(declaim (notinline %condition-wait))
+(declaim (notinline %%condition-wait))
+
+(defun %condition-wait (queue mutex
+                        timeout to-sec to-usec stop-sec stop-usec deadlinep)
+  (locally (declare (inline %%condition-wait))
+    (tagbody
+      :start
+      (multiple-value-bind (success sec usec)
+          (%%condition-wait queue mutex
+                            timeout to-sec to-usec stop-sec stop-usec)
+        (when (and (not success) deadlinep) ; Deadline exceeded.
+          (signal-deadline)
+          (setf (values to-sec to-usec stop-sec stop-usec deadlinep)
+                (decode-timeout timeout))
+          (go :start))
+        (return-from %condition-wait (values success sec usec))))))
 
 (declaim (ftype (sfunction (waitqueue mutex &key (:timeout (or null (real 0)))) boolean) condition-wait))
 (defun condition-wait (queue mutex &key timeout)
@@ -1027,10 +1015,7 @@ QUEUE, at which point we re-acquire MUTEX and return T.
 
 Spurious wakeups are possible.
 
-If TIMEOUT is given, it is the maximum number of seconds to wait,
-including both waiting for the wakeup and the time to re-acquire
-MUTEX. When neither a wakeup nor a re-acquisition occurs within the
-given time, returns NIL without re-acquiring MUTEX.
+If TIMEOUT is given, it is the maximum number of seconds to wait for wakeup.
 
 If CONDITION-WAIT unwinds, it may do so with or without MUTEX being
 held.
@@ -1059,12 +1044,11 @@ associated data:
       (push data *data*)
       (condition-notify *queue*)))
 "
-  (locally (declare (inline %condition-wait))
-    (multiple-value-bind (to-sec to-usec stop-sec stop-usec deadlinep)
-        (decode-timeout timeout)
-      (values
-       (%condition-wait queue mutex timeout
-                        to-sec to-usec stop-sec stop-usec deadlinep)))))
+  (multiple-value-bind (to-sec to-usec stop-sec stop-usec deadlinep)
+      (decode-timeout timeout)
+    (values
+     (%condition-wait queue mutex timeout
+                      to-sec to-usec stop-sec stop-usec deadlinep))))
 
 (declaim (ftype (sfunction (waitqueue &optional (and fixnum (integer 1))) null)
                 condition-notify))
