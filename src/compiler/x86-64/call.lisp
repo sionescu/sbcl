@@ -1282,6 +1282,7 @@
   (:temporary (:sc unsigned-reg :offset rcx-offset :from (:argument 1)) rcx)
   (:temporary (:sc unsigned-reg :offset rax-offset) rax)
   (:temporary (:sc unsigned-reg) dst)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:results (result :scs (descriptor-reg)))
   (:node-var node)
   (:generator 20
@@ -1299,7 +1300,7 @@
       (unless stack-allocate-p
         (instrument-alloc dst node))
       (pseudo-atomic (:elide-if stack-allocate-p)
-       (allocation 'list dst list-pointer-lowtag node stack-allocate-p dst)
+       (allocation 'list dst list-pointer-lowtag node stack-allocate-p dst noop0 noop1)
        ;; Set up the result.
        (move result dst)
        ;; Jump into the middle of the loop, 'cause that's where we want

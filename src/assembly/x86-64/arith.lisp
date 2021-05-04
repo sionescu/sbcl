@@ -53,7 +53,7 @@
   (instrument-alloc 16 nil)
   (let ((header (logior (ash 1 n-widetag-bits) bignum-widetag)))
     (pseudo-atomic ()
-      (allocation nil 16 0 nil nil alloc-tn)
+      (allocation nil 16 0 nil nil alloc-tn nil nil)
       (storew* header alloc-tn 0 0 t)
       (storew source alloc-tn bignum-digits-offset 0)
       (if (eq dest alloc-tn)
@@ -132,7 +132,7 @@
     (inst cmp x rcx)
     (inst jmp :e SINGLE-WORD-BIGNUM)
 
-    (alloc-other res bignum-widetag (+ bignum-digits-offset 2) nil)
+    (alloc-other res bignum-widetag (+ bignum-digits-offset 2) nil nil nil)
     (storew rax res bignum-digits-offset other-pointer-lowtag)
     (storew rcx res (1+ bignum-digits-offset) other-pointer-lowtag)
     (inst clc) (inst ret)

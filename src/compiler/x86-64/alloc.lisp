@@ -144,7 +144,7 @@
 ;;; 1. what to allocate: type, size, lowtag describe the object
 ;;; 2. how to allocate it: policy and how to invoke the trampoline
 ;;; 3. where to put the result
-(defun allocation (type size lowtag node dynamic-extent alloc-tn)
+(defun allocation (type size lowtag node dynamic-extent alloc-tn noop0 noop1)
   (when dynamic-extent
     (stack-allocation alloc-tn size lowtag)
     (return-from allocation (values)))
@@ -163,6 +163,11 @@
         (end-addr
          #+sb-thread (thread-slot-ea (1+ thread-alloc-region-slot))
          #-sb-thread (ea (+ boxed-region n-word-bytes))))
+
+    ;; Clobber the NOOP registers to ensure that they are actually used
+    (when (and noop0 noop1)
+      (inst mov :dword noop0 #x4242)
+      (inst mov :dword noop1 #x4343))
 
     (cond ((typep size `(integer , large-object-size))
            ;; large objects will never be made in a per-thread region
@@ -214,16 +219,16 @@
 ;;; Allocate an other-pointer object of fixed SIZE with a single word
 ;;; header having the specified WIDETAG value. The result is placed in
 ;;; RESULT-TN.
-(defun alloc-other (result-tn widetag size node &optional stack-allocate-p
+(defun alloc-other (result-tn widetag size node noop0 noop1 &optional stack-allocate-p
                     &aux (bytes (pad-data-block size)))
   (let ((header (compute-object-header size widetag)))
     (cond (stack-allocate-p
-           (allocation nil bytes other-pointer-lowtag node t result-tn)
+           (allocation nil bytes other-pointer-lowtag node t result-tn noop0 noop1)
            (storew header result-tn 0 other-pointer-lowtag))
           (t
            (instrument-alloc bytes node)
            (pseudo-atomic ()
-             (allocation nil bytes 0 node nil result-tn)
+             (allocation nil bytes 0 node nil result-tn noop0 noop1)
              (storew* header result-tn 0 0 t)
              (inst or :byte result-tn other-pointer-lowtag))))))
 
@@ -232,6 +237,7 @@
   (:args (things :more t :scs (descriptor-reg constant immediate)))
   (:temporary (:sc unsigned-reg) ptr temp)
   (:temporary (:sc unsigned-reg :to (:result 0) :target result) res)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:info num)
   (:results (result :scs (descriptor-reg)))
   (:variant-vars star)
@@ -264,7 +270,7 @@
                  (instrument-alloc size node))
                (pseudo-atomic (:elide-if stack-allocate-p)
                 (allocation 'list size (if (= cons-cells 2) 0 list-pointer-lowtag)
-                            node stack-allocate-p res)
+                            node stack-allocate-p res noop0 noop1)
                 (multiple-value-bind (last-base-reg lowtag car cdr)
                     (cond
                       ((= cons-cells 2)
@@ -364,6 +370,7 @@
     ;; in 'calc-size-in-bytes'
     (:results (result :scs (descriptor-reg) :from :load))
     (:arg-types positive-fixnum positive-fixnum positive-fixnum)
+    (:temporary (:sc unsigned-reg) noop0 noop1)
     (:policy :fast-safe)
     (:node-var node)
     (:generator 100
@@ -372,7 +379,7 @@
       (let ((size (calc-size-in-bytes words result)))
         (instrument-alloc size node)
         (pseudo-atomic ()
-         (allocation nil size 0 node nil result)
+         (allocation nil size 0 node nil result noop0 noop1)
          (put-header result 0 type length t)
          (inst or :byte result other-pointer-lowtag)))))
 
@@ -536,6 +543,7 @@
     (:policy :fast-safe)
     (:node-var node)
     (:temporary (:sc descriptor-reg) tail next limit)
+    (:temporary (:sc unsigned-reg) noop0 noop1)
     (:generator 20
       (let ((size (calc-size-in-bytes length next))
             (entry (gen-label))
@@ -544,7 +552,7 @@
              (and (sc-is element immediate) (eql (tn-value element) 0))))
         (instrument-alloc size node)
         (pseudo-atomic ()
-         (allocation 'list size list-pointer-lowtag node nil result)
+         (allocation 'list size list-pointer-lowtag node nil result noop0 noop1)
          (compute-end)
          (inst mov next result)
          (inst jmp entry)
@@ -566,9 +574,10 @@
   (:translate make-fdefn)
   (:args (name :scs (descriptor-reg) :to :eval))
   (:results (result :scs (descriptor-reg) :from :argument))
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:generator 37
-    (alloc-other result fdefn-widetag fdefn-size node)
+    (alloc-other result fdefn-widetag fdefn-size node noop0 noop1)
     (storew name result fdefn-name-slot other-pointer-lowtag)
     (storew nil-value result fdefn-fun-slot other-pointer-lowtag)
     (storew (make-fixup 'undefined-tramp :assembly-routine)
@@ -578,6 +587,7 @@
   ; (:args (function :to :save :scs (descriptor-reg)))
   (:info label length stack-allocate-p)
   (:temporary (:sc any-reg) temp)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:results (result :scs (descriptor-reg)))
   (:node-var node)
   (:generator 10
@@ -587,7 +597,7 @@
      (unless stack-allocate-p
        (instrument-alloc bytes node))
      (pseudo-atomic (:elide-if stack-allocate-p)
-       (allocation nil bytes fun-pointer-lowtag node stack-allocate-p result)
+       (allocation nil bytes fun-pointer-lowtag node stack-allocate-p result noop0 noop1)
        (storew* #-immobile-space header ; write the widetag and size
                 #+immobile-space        ; ... plus the layout pointer
                 (progn (inst mov temp header)
@@ -609,10 +619,11 @@
 (define-vop (make-value-cell)
   (:args (value :scs (descriptor-reg any-reg) :to :result))
   (:results (result :scs (descriptor-reg) :from :eval))
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:info stack-allocate-p)
   (:node-var node)
   (:generator 10
-    (alloc-other result value-cell-widetag value-cell-size node stack-allocate-p)
+    (alloc-other result value-cell-widetag value-cell-size node noop0 noop1 stack-allocate-p)
     (storew value result value-cell-value-slot other-pointer-lowtag)))
 
 ;;;; automatic allocators for primitive objects
@@ -631,6 +642,7 @@
   (:args)
   (:info name words type lowtag stack-allocate-p)
   (:results (result :scs (descriptor-reg)))
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:generator 50
    (let* ((instancep (typep type 'wrapper)) ; is this an instance type?
@@ -641,7 +653,7 @@
     (pseudo-atomic (:elide-if stack-allocate-p)
       ;; If storing a header word, defer ORing in the lowtag until after
       ;; the header is written so that displacement can be 0.
-      (allocation nil bytes (if type 0 lowtag) node stack-allocate-p result)
+      (allocation nil bytes (if type 0 lowtag) node stack-allocate-p result noop0 noop1)
       (when type
         (let* ((widetag (if instancep instance-widetag type))
                (header (compute-object-header words widetag)))
@@ -674,6 +686,7 @@
   (:results (result :scs (descriptor-reg) :from (:eval 1)))
   (:temporary (:sc unsigned-reg :from :eval :to (:eval 1)) bytes)
   (:temporary (:sc unsigned-reg :from :eval :to :result) header)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:generator 50
    ;; With the exception of bignums, these objects have effectively
@@ -693,7 +706,7 @@
             (t
              (instrument-alloc bytes node)
              (pseudo-atomic ()
-              (allocation nil bytes lowtag node nil result)
+              (allocation nil bytes lowtag node nil result noop0 noop1)
               (storew header result 0 lowtag))))))
 
 (macrolet ((c-call (name)

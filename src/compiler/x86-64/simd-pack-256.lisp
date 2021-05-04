@@ -89,10 +89,11 @@
 (define-vop (move-from-avx2)
   (:args (x :scs (single-avx2-reg double-avx2-reg int-avx2-reg)))
   (:results (y :scs (descriptor-reg)))
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:note "AVX2 to pointer coercion")
   (:generator 13
-     (alloc-other y simd-pack-256-widetag simd-pack-256-size node)
+     (alloc-other y simd-pack-256-widetag simd-pack-256-size node noop0 noop1)
        ;; see *simd-pack-element-types*
      (storew (fixnumize
               (sc-case x
@@ -205,9 +206,10 @@
   (:arg-types tagged-num unsigned-num unsigned-num unsigned-num unsigned-num)
   (:results (dst :scs (descriptor-reg) :from :load))
   (:result-types t)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:generator 13
-    (alloc-other dst simd-pack-256-widetag simd-pack-256-size node)
+    (alloc-other dst simd-pack-256-widetag simd-pack-256-size node noop0 noop1)
     ;; see *simd-pack-element-types*
     (storew tag dst simd-pack-256-tag-slot other-pointer-lowtag)
     (storew p0 dst simd-pack-256-p0-slot other-pointer-lowtag)

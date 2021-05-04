@@ -68,13 +68,14 @@
 sb-vm::
 (define-vop (cl-user::alloc-to-r8)
   (:temporary (:sc any-reg :offset r8-offset :from :eval) result)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:node-var node)
   (:generator 1
     (let* ((bytes large-object-size) ; payload + header total
            (words (- (/ bytes n-word-bytes) vector-data-offset)))
       (instrument-alloc bytes node)
       (pseudo-atomic ()
-       (allocation nil bytes 0 node nil result)
+       (allocation nil bytes 0 node nil result noop0 noop1)
        (storew* simple-array-unsigned-byte-64-widetag result 0 0 t)
        (storew* (fixnumize words) result vector-length-slot 0 t)
        (inst or :byte result other-pointer-lowtag)))))

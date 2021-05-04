@@ -27,10 +27,11 @@
 (define-vop (move-from-sap)
   (:args (sap :scs (sap-reg) :to :result))
   (:results (res :scs (descriptor-reg) :from :argument))
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:note "SAP to pointer coercion")
   (:node-var node)
   (:generator 20
-    (alloc-other res sap-widetag sap-size node)
+    (alloc-other res sap-widetag sap-size node noop0 noop1)
     (storew sap res sap-pointer-slot other-pointer-lowtag)))
 (define-move-vop move-from-sap :move
   (sap-reg) (descriptor-reg))

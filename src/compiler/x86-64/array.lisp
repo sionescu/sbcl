@@ -26,6 +26,7 @@
   (:arg-types positive-fixnum positive-fixnum)
   (:temporary (:sc any-reg :to :eval) bytes)
   (:temporary (:sc any-reg :to :result) header)
+  (:temporary (:sc unsigned-reg) noop0 noop1)
   (:results (result :scs (descriptor-reg) :from :eval))
   (:node-var node)
   (:generator 13
@@ -41,7 +42,7 @@
     (inst shr :dword header n-fixnum-tag-bits)
     (instrument-alloc bytes node)
     (pseudo-atomic ()
-     (allocation nil bytes 0 node nil result)
+     (allocation nil bytes 0 node nil result noop0 noop1)
      (storew header result 0 0)
      (inst or :byte result other-pointer-lowtag))))
 

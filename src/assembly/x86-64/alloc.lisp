@@ -24,7 +24,7 @@
           (inst push number)
           (let (#+avx2
                 (*avx-registers-used-p* ,avx))
-            (alloc-other number bignum-widetag (+ bignum-digits-offset 1) nil))
+            (alloc-other number bignum-widetag (+ bignum-digits-offset 1) nil nil nil))
           (popw number bignum-digits-offset other-pointer-lowtag)))
      (unsigned (reg avx)
        `(define-assembly-routine (,(symbolicate "ALLOC-UNSIGNED-BIGNUM-IN-" reg
@@ -37,11 +37,11 @@
           (let (#+avx2
                 (*avx-registers-used-p* ,avx))
             ;; Two word bignum
-            (alloc-other number bignum-widetag (+ bignum-digits-offset 2) nil))
+            (alloc-other number bignum-widetag (+ bignum-digits-offset 2) nil nil nil))
           (popw number bignum-digits-offset other-pointer-lowtag)
           (inst ret)
           ONE-WORD-BIGNUM
-          (alloc-other number bignum-widetag (+ bignum-digits-offset 1) nil)
+          (alloc-other number bignum-widetag (+ bignum-digits-offset 1) nil nil nil)
           (popw number bignum-digits-offset other-pointer-lowtag)))
      (define (op &optional avx)
        ;; Don't include r11 or r13 since those are temp and thread-base respectively
